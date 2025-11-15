@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Server Template Editor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
+  <style>
+    .drag-handle { cursor: move; }
+    .preview-tree { font-family: 'Courier New', monospace; white-space: pre; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-purple-50 to-pink-50 min-h-screen p-6">
+
+<div class="max-w-6xl mx-auto">
+  <div class="text-center mb-8">
+    <h1 class="text-4xl font-bold text-purple-700 mb-2">Server Template Editor</h1>
+    <p class="text-gray-600">สร้าง server.json สำหรับบอท Discord ของคุณ</p>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Editor -->
+    <div class="bg-white rounded-xl shadow-lg p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-semibold text-purple-600">แก้ไขโครงสร้าง</h2>
+        <button onclick="addCategory()" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition flex items-center gap-2">
+          <i class="fas fa-plus"></i> เพิ่มหมวดหมู่
+        </button>
+      </div>
+
+      <div id="categories-container" class="space-y-4">
+        <!-- หมวดหมู่จะถูกเพิ่มที่นี่ -->
+      </div>
+    </div>
+
+    <!-- Preview + Download -->
+    <div class="bg-white rounded-xl shadow-lg p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-semibold text-pink-600">Preview & ดาวน์โหลด</h2>
+        <button onclick="downloadJSON()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center gap-2">
+          <i class="fas fa-download"></i> ดาวน์โหลด JSON
+        </button>
+      </div>
+
+      <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs overflow-x-auto h-64">
+        <pre id="json-output" class="preview-tree">กรุณาเพิ่มหมวดหมู่ก่อน</pre>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-gray-700 mb-2">ตัวอย่างใน Discord:</h3>
+        <div id="preview-tree" class="bg-gray-100 p-4 rounded-lg text-sm font-mono text-gray-800 h-48 overflow-y-auto">
+          ไม่มีข้อมูล
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="text-center mt-8 text-gray-500 text-sm">
+    <p>พัฒนาโดย Yuuma • ใช้กับบอท Discord ได้ทันที</p>
+  </div>
+</div>
+
+<script>
+let categoryId = 0;
+
+// โหลด template เริ่มต้น
+const defaultTemplate = {
+  categories: [
+    {
+      name: "เริ่มต้นที่นี่",
+      order: 0,
+      channels: {
+        text: [
+          { name: "ประกาศ", order: 0 },
+          { name: "กติกา", order: 1 }
+        ],
+        voice: [
+          { name: "พูดคุยทั่วไป", order: 0 }
+        ]
+      }
+    }
+  ]
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadFromObject(defaultTemplate);
+  updatePreview();
+});
+
+// เพิ่มหมวดหมู่
+function addCategory() {
+  const container = document.getElementById('categories-container');
+  const id = `cat-${categoryId++}`;
+  
+  const div = document.createElement('div');
+  div.className = 'border border-purple-200 rounded-lg p-4 bg-purple-50';
+  div.innerHTML = `
+    <div class="flex items-center gap-2 mb-3">
+      <i class="fas fa-grip-vertical text-gray-400 drag-handle"></i>
+      <input type="text" placeholder="ชื่อหมวดหมู่" class="flex-1 px-3 py-2 border rounded-lg" 
+             value="หมวดหมู่ใหม่" oninput="updatePreview()">
+      <input type="number" placeholder="ลำดับ" class="w-16 px-2 py-1 border rounded" value="0" oninput="updatePreview()">
+      <button type="button" onclick="this.closest('.border').remove(); updatePreview()" 
+              class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+    </div>
+
+    <div class="ml-6 space-y-3">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <i class="fas fa-comment text-blue-500"></i>
+          <label class="font-medium">ช่องแชท</label>
+          <button type="button" onclick="addTextChannel(this)" class="text-xs text-blue-600 hover:underline">+ เพิ่ม</button>
+        </div>
+        <div class="text-channels space-y-1"></div>
+      </div>
+
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <i class="fas fa-microphone text-green-500"></i>
+          <label class="font-medium">ช่องเสียง</label>
+          <button type="button" onclick="addVoiceChannel(this)" class="text-xs text-green-600 hover:underline">+ เพิ่ม</button>
+        </div>
+        <div class="voice-channels space-y-1"></div>
+      </div>
+    </div>
+  `;
+  container.appendChild(div);
+  updatePreview();
+}
+
+// เพิ่มช่องแชท
+function addTextChannel(btn) {
+  const container = btn.parentElement.parentElement.querySelector('.text-channels');
+  const div = document.createElement('div');
+  div.className = 'flex items-center gap-2 ml-4';
+  div.innerHTML = `
+    <i class="fas fa-hashtag text-gray-500 text-xs"></i>
+    <input type="text" placeholder="ชื่อช่อง" class="flex-1 px-2 py-1 text-sm border rounded" 
+           value="ช่องใหม่" oninput="updatePreview()">
+    <input type="number" placeholder="#" class="w-12 px-1 py-1 text-sm border rounded" value="0" oninput="updatePreview()">
+    <button type="button" onclick="this.parentElement.remove(); updatePreview()" 
+            class="text-red-400 text-xs hover:text-red-600"><i class="fas fa-times"></i></button>
+  `;
+  container.appendChild(div);
+  updatePreview();
+}
+
+// เพิ่มช่องเสียง
+function addVoiceChannel(btn) {
+  const container = btn.parentElement.parentElement.querySelector('.voice-channels');
+  const div = document.createElement('div');
+  div.className = 'flex items-center gap-2 ml-4';
+  div.innerHTML = `
+    <i class="fas fa-volume-up text-gray-500 text-xs"></i>
+    <input type="text" placeholder="ชื่อช่อง" class="flex-1 px-2 py-1 text-sm border rounded" 
+           value="ห้องเสียงใหม่" oninput="updatePreview()">
+    <input type="number" placeholder="#" class="w-12 px-1 py-1 text-sm border rounded" value="0" oninput="updatePreview()">
+    <button type="button" onclick="this.parentElement.remove(); updatePreview()" 
+            class="text-red-400 text-xs hover:text-red-600"><i class="fas fa-times"></i></button>
+  `;
+  container.appendChild(div);
+  updatePreview();
+}
+
+// โหลดจาก object
+function loadFromObject(data) {
+  const container = document.getElementById('categories-container');
+  container.innerHTML = '';
+  categoryId = 0;
+
+  data.categories.forEach(cat => {
+    addCategory();
+    const lastCat = container.lastElementChild;
+    lastCat.querySelector('input[placeholder="ชื่อหมวดหมู่"]').value = cat.name;
+    lastCat.querySelector('input[placeholder="ลำดับ"]').value = cat.order;
+
+    const textContainer = lastCat.querySelector('.text-channels');
+    textContainer.innerHTML = '';
+    cat.channels.text.forEach(ch => {
+      const div = document.createElement('div');
+      div.className = 'flex items-center gap-2 ml-4';
+      div.innerHTML = `
+        <i class="fas fa-hashtag text-gray-500 text-xs"></i>
+        <input type="text" class="flex-1 px-2 py-1 text-sm border rounded" value="${escapeHTML(ch.name)}">
+        <input type="number" class="w-12 px-1 py-1 text-sm border rounded" value="${ch.order}">
+        <button type="button" onclick="this.parentElement.remove(); updatePreview()" 
+                class="text-red-400 text-xs hover:text-red-600"><i class="fas fa-times"></i></button>
+      `;
+      textContainer.appendChild(div);
+    });
+
+    const voiceContainer = lastCat.querySelector('.voice-channels');
+    voiceContainer.innerHTML = '';
+    cat.channels.voice.forEach(ch => {
+      const div = document.createElement('div');
+      div.className = 'flex items-center gap-2 ml-4';
+      div.innerHTML = `
+        <i class="fas fa-volume-up text-gray-500 text-xs"></i>
+        <input type="text" class="flex-1 px-2 py-1 text-sm border rounded" value="${escapeHTML(ch.name)}">
+        <input type="number" class="w-12 px-1 py-1 text-sm border rounded" value="${ch.order}">
+        <button type="button" onclick="this.parentElement.remove(); updatePreview()" 
+                class="text-red-400 text-xs hover:text-red-600"><i class="fas fa-times"></i></button>
+      `;
+      voiceContainer.appendChild(div);
+    });
+  });
+}
+
+// ป้องกัน HTML Injection
+function escapeHTML(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// อัปเดต Preview
+function updatePreview() {
+  const categories = [];
+  document.querySelectorAll('#categories-container > div').forEach(catDiv => {
+    const name = catDiv.querySelector('input[placeholder="ชื่อหมวดหมู่"]').value.trim() || "ไม่มีชื่อ";
+    const order = parseInt(catDiv.querySelector('input[placeholder="ลำดับ"]').value) || 0;
+
+    const text = [];
+    catDiv.querySelectorAll('.text-channels > div').forEach(ch => {
+      const inputs = ch.querySelectorAll('input');
+      text.push({
+        name: inputs[0].value.trim() || "ช่อง",
+        order: parseInt(inputs[1].value) || 0
+      });
+    });
+
+    const voice = [];
+    catDiv.querySelectorAll('.voice-channels > div').forEach(ch => {
+      const inputs = ch.querySelectorAll('input');
+      voice.push({
+        name: inputs[0].value.trim() || "ห้องเสียง",
+        order: parseInt(inputs[1].value) || 0
+      });
+    });
+
+    categories.push({ name, order, channels: { text, voice } });
+  });
+
+  // เรียงลำดับ
+  categories.sort((a, b) => a.order - b.order);
+  categories.forEach(cat => {
+    cat.channels.text.sort((a, b) => a.order - b.order);
+    cat.channels.voice.sort((a, b) => a.order - b.order);
+  });
+
+  const json = { categories };
+  const jsonStr = JSON.stringify(json, null, 2);
+  document.getElementById('json-output').textContent = jsonStr;
+
+  // Preview Tree
+  let tree = '';
+  categories.forEach((cat, i) => {
+    tree += `${cat.name}\n`;
+    cat.channels.text.forEach((ch, j) => tree += `${j === cat.channels.text.length - 1 && cat.channels.voice.length === 0 ? '└' : '├'}─ ${ch.name}\n`);
+    cat.channels.voice.forEach((ch, j) => tree += `${j === cat.channels.voice.length - 1 ? '└' : '├'}─ ${ch.name}\n`);
+    if (i < categories.length - 1) tree += '\n';
+  });
+  document.getElementById('preview-tree').textContent = tree || 'ไม่มีข้อมูล';
+}
+
+// ดาวน์โหลด JSON
+function downloadJSON() {
+  const jsonStr = document.getElementById('json-output').textContent;
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'server.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  // แจ้งเตือน
+  const btn = document.querySelector('button[onclick="downloadJSON()"]');
+  const original = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-check"></i> ดาวน์โหลดแล้ว!';
+  btn.classList.replace('bg-green-600', 'bg-blue-600');
+  setTimeout(() => {
+    btn.innerHTML = original;
+    btn.classList.replace('bg-blue-600', 'bg-green-600');
+  }, 2000);
+}
+
+// เริ่มต้น
+addCategory();
+</script>
+
+</body>
+</html>
